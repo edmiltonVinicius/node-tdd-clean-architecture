@@ -12,6 +12,11 @@
       "standard --fix"
     ]
   },
+  "standard": {
+    "env": [
+      "jest"
+    ]
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
