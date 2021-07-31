@@ -1,17 +1,43 @@
 const LoginRouter = require('./login-router')
 const MissingParamError = require('../helpers/missing-param-error')
+const InvalidParamError = require('../helpers/invalid-param-error')
 const UnauthorizedError = require('../helpers/unauthorized-error')
 const ServerError = require('../helpers/server-error')
 
 const makeSut = () => {
   const authUseCaseSpy = makeAuthUseCase()
-  const sut = new LoginRouter(authUseCaseSpy) // sut significa o alvo do teste
+  const emailValidatorSpy = makeEmailValidator()
+  const sut = new LoginRouter(authUseCaseSpy, emailValidatorSpy) // sut significa o alvo do teste
   authUseCaseSpy.accessToken = 'valid_token'
 
   return {
     authUseCaseSpy,
-    sut
+    sut,
+    emailValidatorSpy
   }
+}
+
+const makeEmailValidator = () => {
+  class EmailValidatorSpy {
+    isValid (email) {
+      this.email = email
+      return this.isEmailValid
+    }
+  }
+
+  const emailValidatorSpy = new EmailValidatorSpy()
+  emailValidatorSpy.isEmailValid = true
+  return emailValidatorSpy
+}
+
+const makeAuthUseCaseWithError = () => {
+  class AuthUseCaseSpy {
+    async auth () {
+      throw new Error()
+    }
+  }
+
+  return new AuthUseCaseSpy()
 }
 
 const makeAuthUseCase = () => {
@@ -26,14 +52,14 @@ const makeAuthUseCase = () => {
   return new AuthUseCaseSpy()
 }
 
-const makeAuthUseCaseWithError = () => {
-  class AuthUseCaseSpy {
-    async auth () {
+const makeEmailValidatorWithError = () => {
+  class EmailValidatorSpy {
+    isValid () {
       throw new Error()
     }
   }
 
-  return new AuthUseCaseSpy()
+  return new EmailValidatorSpy()
 }
 
 describe('Login Router', () => {
@@ -162,5 +188,78 @@ describe('Login Router', () => {
 
     const httpResponse = await sut.route(httpRequest)
     expect(httpResponse.statusCode).toBe(500)
+  })
+
+  test('Should return 400 if an invalid email id provided', async () => {
+    const { sut, emailValidatorSpy } = makeSut()
+    emailValidatorSpy.isEmailValid = false
+    const httpRequest = {
+      body: {
+        email: 'invalid_email@email.com',
+        password: 'invalid_password'
+      }
+    }
+    const httpResponse = await sut.route(httpRequest)
+    expect(httpResponse.statusCode).toBe(400)
+    expect(httpResponse.body).toEqual(new InvalidParamError('email'))
+  })
+
+  test('should return 500 if no EmailValidator is not provided', async () => {
+    const authUseCaseSpy = makeAuthUseCase()
+    const sut = new LoginRouter(authUseCaseSpy)
+
+    const httpRequest = {
+      body: {
+        email: 'any_email@email.com',
+        password: 'any_password'
+      }
+    }
+    const httpResponse = await sut.route(httpRequest)
+    expect(httpResponse.statusCode).toBe(500)
+    expect(httpResponse.body).toEqual(new ServerError())
+  })
+
+  test('should return 500 if EmailValidator has no isValid method', async () => {
+    const authUseCaseSpy = makeAuthUseCase()
+    const sut = new LoginRouter(authUseCaseSpy, {})
+
+    const httpRequest = {
+      body: {
+        email: 'any_email@email.com',
+        password: 'any_password'
+      }
+    }
+
+    const httpResponse = await sut.route(httpRequest)
+    expect(httpResponse.statusCode).toBe(500)
+    expect(httpResponse.body).toEqual(new ServerError())
+  })
+
+  test('should return 500 if EmailValidator throws', async () => {
+    const authUseCaseSpy = makeAuthUseCase()
+    const emailValidatorSpy = makeEmailValidatorWithError()
+    const sut = new LoginRouter(authUseCaseSpy, emailValidatorSpy)
+
+    const httpRequest = {
+      body: {
+        email: 'any_email@email.com',
+        password: 'any_password'
+      }
+    }
+
+    const httpResponse = await sut.route(httpRequest)
+    expect(httpResponse.statusCode).toBe(500)
+  })
+
+  test('should call EmailValidator with correct email', async () => {
+    const { sut, emailValidatorSpy } = makeSut()
+    const httpRequest = {
+      body: {
+        email: 'any_email@email.com',
+        password: 'any_password'
+      }
+    }
+    await sut.route(httpRequest)
+    expect(emailValidatorSpy.email).toBe(httpRequest.body.email)
   })
 })
